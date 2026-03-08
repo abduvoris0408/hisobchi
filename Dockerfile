@@ -8,8 +8,7 @@ RUN npm ci
 
 COPY . .
 RUN npx prisma generate
-RUN npm run build && echo "✅ Build OK" && ls -la dist/
-RUN ls dist/main.js && echo "✅ main.js mavjud"
+RUN npm run build
 
 EXPOSE 3000
 
