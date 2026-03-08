@@ -1,0 +1,217 @@
+// prisma/schema.prisma
+// Hisobchi — To'liq Database Schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// ─────────────────────────────────────────
+// ENUMS
+// ─────────────────────────────────────────
+
+enum Role {
+  USER
+  ADMIN
+}
+
+enum TransactionType {
+  EXPENSE
+  INCOME
+}
+
+enum TransactionSource {
+  APP
+  TELEGRAM
+  MANUAL
+}
+
+enum BudgetPeriod {
+  MONTHLY
+  WEEKLY
+}
+
+enum NotificationType {
+  BUDGET_ALERT      // Limit 80% ga yetdi
+  BUDGET_EXCEEDED   // Limit oshib ketdi
+  DAILY_REMINDER    // Kunlik xarajat eslatmasi
+  WEEKLY_REPORT     // Haftalik hisobot
+  SYSTEM            // Tizim xabari
+}
+
+enum Language {
+  uz_latn
+  uz_cyrl
+  ru
+}
+
+// ─────────────────────────────────────────
+// USER
+// ─────────────────────────────────────────
+
+model User {
+  id          String   @id @default(uuid())
+  phone       String   @unique
+  name        String?
+  avatarUrl   String?
+  currency    String   @default("UZS")
+  language    Language @default(uz_latn)
+  role        Role     @default(USER)
+
+  // Telegram integratsiya
+  telegramId       String? @unique
+  telegramUsername String?
+  telegramConnectedAt DateTime?
+
+  // Push notification
+  fcmToken    String?
+
+  // Holat
+  isActive    Boolean  @default(true)
+  isVerified  Boolean  @default(false)
+
+  // Refresh token (rotation uchun)
+  refreshToken String?
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relations
+  transactions  Transaction[]
+  categories    Category[]
+  budgets       Budget[]
+  notifications Notification[]
+  notifSettings NotificationSettings?
+
+  @@map("users")
+}
+
+// ─────────────────────────────────────────
+// CATEGORY
+// ─────────────────────────────────────────
+
+model Category {
+  id        String          @id @default(uuid())
+  userId    String?         // null = default (barcha foydalanuvchilar uchun)
+  name      String
+  nameUz    String          // O'zbek tili
+  nameRu    String?         // Rus tili
+  emoji     String
+  color     String          // HEX rang #FF5733
+  type      TransactionType
+  isDefault Boolean         @default(false)
+  sortOrder Int             @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  user         User?         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  transactions Transaction[]
+  budgets      Budget[]
+
+  @@map("categories")
+}
+
+// ─────────────────────────────────────────
+// TRANSACTION
+// ─────────────────────────────────────────
+
+model Transaction {
+  id          String            @id @default(uuid())
+  userId      String
+  categoryId  String
+  amount      Decimal           @db.Decimal(15, 2)
+  type        TransactionType
+  note        String?
+  receiptUrl  String?           // Chek rasmi (Supabase Storage)
+  date        DateTime          @default(now())
+  source      TransactionSource @default(APP)
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relations
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  category Category @relation(fields: [categoryId], references: [id])
+
+  @@index([userId, date])
+  @@index([userId, categoryId])
+  @@index([userId, type])
+  @@map("transactions")
+}
+
+// ─────────────────────────────────────────
+// BUDGET
+// ─────────────────────────────────────────
+
+model Budget {
+  id         String       @id @default(uuid())
+  userId     String
+  categoryId String?      // null = umumiy byudjet
+  amount     Decimal      @db.Decimal(15, 2)
+  period     BudgetPeriod @default(MONTHLY)
+  month      Int          // 1-12
+  year       Int
+  alertAt    Int          @default(80) // % da ogohlantirish
+
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  // Relations
+  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  category Category? @relation(fields: [categoryId], references: [id])
+
+  @@index([userId, categoryId, month, year])
+  @@map("budgets")
+}
+
+// ─────────────────────────────────────────
+// NOTIFICATION
+// ─────────────────────────────────────────
+
+model Notification {
+  id     String           @id @default(uuid())
+  userId String
+  title  String
+  body   String
+  type   NotificationType
+  data   Json?            // Qo'shimcha ma'lumot (transactionId va h.k.)
+  isRead Boolean          @default(false)
+  readAt DateTime?
+
+  createdAt DateTime @default(now())
+
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, isRead])
+  @@map("notifications")
+}
+
+// ─────────────────────────────────────────
+// NOTIFICATION SETTINGS
+// ─────────────────────────────────────────
+
+model NotificationSettings {
+  id              String  @id @default(uuid())
+  userId          String  @unique
+  budgetAlerts    Boolean @default(true)
+  dailyReminder   Boolean @default(true)
+  reminderTime    String  @default("21:00") // HH:MM format
+  weeklyReport    Boolean @default(true)
+  pushEnabled     Boolean @default(true)
+  telegramEnabled Boolean @default(true)
+
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("notification_settings")
+}
